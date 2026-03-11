@@ -26,7 +26,7 @@ describe("SureWorkEscrow", function () {
 
     // Deploy escrow contract
     const SureWorkEscrow = await ethers.getContractFactory("SureWorkEscrow");
-    escrow = await SureWorkEscrow.deploy(feeCollector.address);
+    escrow = await SureWorkEscrow.deploy(feeCollector.address) as any;
     await escrow.waitForDeployment();
   });
 
