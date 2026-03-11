@@ -1,0 +1,129 @@
+name: Test & Deploy Contracts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Target network (polygon-amoy or polygon)'
+        required: true
+        default: 'polygon-amoy'
+        type: choice
+        options:
+          - polygon-amoy
+          - polygon
+
+jobs:
+  test:
+    name: Compile & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile contracts
+        run: npm run compile
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run coverage
+        run: npm run coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+  deploy-testnet:
+    name: Deploy to Polygon Amoy (testnet)
+    needs: test
+    runs-on: ubuntu-latest
+    # Only deploys on push to main or manual workflow dispatch targeting testnet
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.network == 'polygon-amoy')
+    environment: testnet
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile contracts
+        run: npm run compile
+
+      - name: Deploy to Polygon Amoy
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          POLYGON_AMOY_RPC_URL: ${{ secrets.POLYGON_AMOY_RPC_URL }}
+          FEE_COLLECTOR_ADDRESS: ${{ secrets.FEE_COLLECTOR_ADDRESS }}
+          POLYGONSCAN_API_KEY: ${{ secrets.POLYGONSCAN_API_KEY }}
+        run: npx hardhat run scripts/deploy.ts --network polygon-amoy
+
+      - name: Verify on Polygonscan
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          POLYGON_AMOY_RPC_URL: ${{ secrets.POLYGON_AMOY_RPC_URL }}
+          POLYGONSCAN_API_KEY: ${{ secrets.POLYGONSCAN_API_KEY }}
+        run: |
+          echo "Contract verification runs after deploy.ts outputs the address"
+          echo "Manual verify: npx hardhat verify --network polygon-amoy <CONTRACT_ADDRESS> <FEE_COLLECTOR>"
+
+  deploy-mainnet:
+    name: Deploy to Polygon Mainnet
+    needs: test
+    runs-on: ubuntu-latest
+    # Only runs on manual dispatch targeting mainnet
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.network == 'polygon'
+    environment: mainnet   # Requires manual approval in GitHub Environments settings
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile contracts
+        run: npm run compile
+
+      - name: Deploy to Polygon Mainnet
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL }}
+          FEE_COLLECTOR_ADDRESS: ${{ secrets.FEE_COLLECTOR_ADDRESS }}
+          POLYGONSCAN_API_KEY: ${{ secrets.POLYGONSCAN_API_KEY }}
+        run: npx hardhat run scripts/deploy.ts --network polygon
+
+      - name: Verify on Polygonscan
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL }}
+          POLYGONSCAN_API_KEY: ${{ secrets.POLYGONSCAN_API_KEY }}
+        run: |
+          echo "Contract deployed. Run verification manually with the deployed address."
